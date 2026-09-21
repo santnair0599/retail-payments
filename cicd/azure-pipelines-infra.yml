@@ -49,6 +49,11 @@ stages:
               workingDirectory: $(TF_WORKING_DIR)
               inlineScript: |
                 terraform plan -out=tfplan -input=false
+            env:
+              TF_VAR_sql_admin_password: $(TF_VAR_sql_admin_password)
+              TF_VAR_synapse_sql_admin_password: $(TF_VAR_synapse_sql_admin_password)
+              TF_VAR_aad_admin_login: $(TF_VAR_aad_admin_login)
+              TF_VAR_aad_admin_object_id: $(TF_VAR_aad_admin_object_id)
 
           - publish: $(TF_WORKING_DIR)/tfplan
             artifact: tfplan
@@ -92,3 +97,8 @@ stages:
                     workingDirectory: $(TF_WORKING_DIR)
                     inlineScript: |
                       terraform apply -input=false -auto-approve "$(Pipeline.Workspace)/tfplan/tfplan"
+                  env:
+                    TF_VAR_sql_admin_password: $(TF_VAR_sql_admin_password)
+                    TF_VAR_synapse_sql_admin_password: $(TF_VAR_synapse_sql_admin_password)
+                    TF_VAR_aad_admin_login: $(TF_VAR_aad_admin_login)
+                    TF_VAR_aad_admin_object_id: $(TF_VAR_aad_admin_object_id)
