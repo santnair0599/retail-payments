@@ -71,6 +71,12 @@ stages:
           runOnce:
             deploy:
               steps:
+                # Deployment jobs, unlike regular jobs, do NOT auto-checkout the repo —
+                # without this, infra/terraform/ (and its .tf files + lock file) never
+                # exists in this job's workspace, and terraform init silently has nothing
+                # to initialize against.
+                - checkout: self
+
                 - download: current
                   artifact: tfplan
 
