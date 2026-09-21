@@ -1,0 +1,24 @@
+# Copy this file to terraform.tfvars and fill in real values.
+# terraform.tfvars should NEVER be committed to Git (add it to .gitignore) since it
+# will contain real, even if throwaway, credentials.
+
+project_name = "retailplat"
+location     = "uaenorth"
+
+sql_admin_login    = "sqladminuser"
+sql_admin_password = "REPLACE_WITH_A_STRONG_PASSWORD"
+
+synapse_sql_admin_login    = "synapseadmin"
+synapse_sql_admin_password = "REPLACE_WITH_A_DIFFERENT_STRONG_PASSWORD"
+
+# Find these with:
+#   az ad signed-in-user show --query userPrincipalName -o tsv
+#   az ad signed-in-user show --query id -o tsv
+aad_admin_login      = "you@yourtenant.onmicrosoft.com"
+aad_admin_object_id  = "00000000-0000-0000-0000-000000000000"
+
+# Optional — your current public IP for direct SSMS/Azure Data Studio access.
+# Find it with: curl -s https://api.ipify.org
+my_client_ip = ""
+
+dedicated_pool_sku = "DW100c"

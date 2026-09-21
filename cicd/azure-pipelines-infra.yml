@@ -1,0 +1,94 @@
+# Terraform plan/apply pipeline. Requires:
+#   - An Azure DevOps service connection named 'retail-platform-arm' (Azure Resource
+#     Manager type, ideally workload-identity/OIDC-federated, not a stored secret).
+#   - A variable group 'retail-platform-tfvars' holding TF_VAR_sql_admin_password,
+#     TF_VAR_synapse_sql_admin_password, TF_VAR_aad_admin_login, TF_VAR_aad_admin_object_id
+#     as secret variables — never commit these into terraform.tfvars in the repo.
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - infra/terraform/*
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - group: retail-platform-tfvars
+  - name: TF_WORKING_DIR
+    value: infra/terraform
+
+stages:
+  - stage: Plan
+    jobs:
+      - job: TerraformPlan
+        steps:
+          - task: TerraformInstaller@1
+            inputs:
+              terraformVersion: '1.7.5'
+
+          - task: AzureCLI@2
+            displayName: 'terraform init'
+            inputs:
+              azureSubscription: 'retail-platform-arm'
+              scriptType: bash
+              scriptLocation: inlineScript
+              workingDirectory: $(TF_WORKING_DIR)
+              inlineScript: |
+                terraform init
+
+          - task: AzureCLI@2
+            displayName: 'terraform plan'
+            inputs:
+              azureSubscription: 'retail-platform-arm'
+              scriptType: bash
+              scriptLocation: inlineScript
+              workingDirectory: $(TF_WORKING_DIR)
+              inlineScript: |
+                terraform plan -out=tfplan -input=false
+
+          - publish: $(TF_WORKING_DIR)/tfplan
+            artifact: tfplan
+
+  - stage: Apply
+    dependsOn: Plan
+    condition: succeeded()
+    jobs:
+      - deployment: TerraformApply
+        environment: 'retail-platform-production'   # gate a manual approval here in
+                                                       # Azure DevOps Environments, same
+                                                       # "prod needs explicit approval"
+                                                       # discipline as every other project
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: tfplan
+
+                - task: TerraformInstaller@1
+                  inputs:
+                    terraformVersion: '1.7.5'
+
+                - task: AzureCLI@2
+                  displayName: 'terraform init (apply job)'
+                  inputs:
+                    azureSubscription: 'retail-platform-arm'
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    workingDirectory: $(TF_WORKING_DIR)
+                    inlineScript: |
+                      terraform init
+
+                - task: AzureCLI@2
+                  displayName: 'terraform apply'
+                  inputs:
+                    azureSubscription: 'retail-platform-arm'
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    workingDirectory: $(TF_WORKING_DIR)
+                    inlineScript: |
+                      terraform apply -input=false -auto-approve "$(Pipeline.Workspace)/tfplan/tfplan"

@@ -1,0 +1,111 @@
+# ADF validate/export/deploy pipeline — the automated-publish pattern from your
+# adf-practice guide's Feature Q18 (@microsoft/azure-data-factory-utilities), not the
+# manual "click Publish in ADF Studio" approach.
+#
+# Assumes: the ADF instance is Git-connected (adf/ folder in this repo, or a dedicated
+# ADF-managed branch depending on how you configured Git integration in ADF Studio),
+# and an Azure DevOps service connection 'retail-platform-arm' with rights to deploy
+# ARM templates into the target resource group.
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - adf/*
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  - name: ADF_ROOT_FOLDER
+    value: adf   # path in the repo where ADF's Git integration publishes its JSON
+  - name: AZURE_SUBSCRIPTION_ID
+    value: '1b0f0a4d-525c-4fac-ad07-dffbe66dd248'   # your subscription ID
+  - name: RESOURCE_GROUP
+    value: 'rg-retailplat'
+  - name: ADF_NAME
+    value: 'adf-retailplat-07rjei'
+  - name: LOCATION
+    value: 'uaenorth'
+
+stages:
+  - stage: BuildAndValidate
+    jobs:
+      - job: ValidateAndExport
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '20.x'
+
+          - script: |
+              npm install -g @microsoft/azure-data-factory-utilities@1.0.0
+            displayName: 'Install ADF utilities'
+
+          - script: |
+              node node_modules/@microsoft/azure-data-factory-utilities/lib/index validate \
+                $(ADF_ROOT_FOLDER) \
+                /subscriptions/$(AZURE_SUBSCRIPTION_ID)/resourceGroups/$(RESOURCE_GROUP)/providers/Microsoft.DataFactory/factories/$(ADF_NAME)
+            displayName: 'Validate ADF resources'
+
+          - script: |
+              node node_modules/@microsoft/azure-data-factory-utilities/lib/index export \
+                $(ADF_ROOT_FOLDER) \
+                /subscriptions/$(AZURE_SUBSCRIPTION_ID)/resourceGroups/$(RESOURCE_GROUP)/providers/Microsoft.DataFactory/factories/$(ADF_NAME) \
+                ArmTemplate
+            displayName: 'Export ARM template'
+
+          - publish: ArmTemplate
+            artifact: adf-arm-template
+
+  - stage: Deploy
+    dependsOn: BuildAndValidate
+    condition: succeeded()
+    jobs:
+      - deployment: DeployADF
+        environment: 'retail-platform-production'   # same manual-approval gate as infra
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - download: current
+                  artifact: adf-arm-template
+
+                # Pre-deployment: stop any triggers that changed, so a partially
+                # deployed dependency chain can't fire mid-deploy — same discipline
+                # as adf-practice Module 07's CI/CD section.
+                - task: AzurePowerShell@5
+                  displayName: 'Stop changed triggers before deploy'
+                  inputs:
+                    azureSubscription: 'retail-platform-arm'
+                    azurePowerShellVersion: LatestVersion
+                    ScriptType: InlineScript
+                    Inline: |
+                      # Placeholder: real implementation compares deployed vs. new trigger
+                      # definitions and stops only the ones that changed. See Microsoft's
+                      # official pre/post-deployment script sample referenced in your
+                      # adf-practice guide (MS33) for the full version.
+                      Write-Host "Stop-triggers step — wire in the real comparison script here."
+
+                - task: AzureResourceManagerTemplateDeployment@3
+                  displayName: 'Deploy ADF ARM template'
+                  inputs:
+                    deploymentScope: 'Resource Group'
+                    azureResourceManagerConnection: 'retail-platform-arm'
+                    subscriptionId: '$(AZURE_SUBSCRIPTION_ID)'
+                    resourceGroupName: '$(RESOURCE_GROUP)'
+                    location: '$(LOCATION)'
+                    templateLocation: 'Linked artifact'
+                    csmFile: '$(Pipeline.Workspace)/adf-arm-template/ARMTemplateForFactory.json'
+                    csmParametersFile: '$(Pipeline.Workspace)/adf-arm-template/ARMTemplateParametersForFactory.json'
+                    deploymentMode: 'Incremental'
+
+                - task: AzurePowerShell@5
+                  displayName: 'Restart intended triggers after deploy'
+                  inputs:
+                    azureSubscription: 'retail-platform-arm'
+                    azurePowerShellVersion: LatestVersion
+                    ScriptType: InlineScript
+                    Inline: |
+                      Write-Host "Restart-triggers step — same pattern as the stop step above."

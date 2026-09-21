@@ -1,0 +1,69 @@
+# Synapse artifact deploy pipeline — SQL scripts, external table definitions, and
+# (if you add them) Spark notebooks, all versioned together per synapse-practice
+# Module 09's "wider deployable surface than ADF" point.
+#
+# HONEST NOTE, worth remembering for an interview: unlike ADF's official
+# @microsoft/azure-data-factory-utilities npm package, Synapse workspace artifact
+# deployment commonly relies on the 'Synapse workspace deployment' Azure DevOps
+# Marketplace extension (not something Azure DevOps ships natively) — install it into
+# your organization before this pipeline's Deploy stage will actually work end to end.
+# This pipeline is structured correctly around that dependency; it doesn't fabricate
+# the extension's exact task name/version, since that's the kind of detail worth
+# verifying against the current Marketplace listing rather than guessing.
+
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - sql/serverless/*
+      - sql/dedicated_pool/*
+
+pool:
+  vmImage: ubuntu-latest
+
+stages:
+  - stage: ValidateSql
+    jobs:
+      - job: LintSqlScripts
+        steps:
+          - script: |
+              echo "Run sqlfluff or a similar T-SQL linter here against sql/serverless and sql/dedicated_pool."
+              echo "Kept intentionally lightweight for this project — the real validation that matters"
+              echo "is running these scripts against a real (paused-after-use) Dedicated Pool, not static lint alone."
+            displayName: 'Lint SQL scripts (placeholder — wire in sqlfluff or similar)'
+
+  - stage: Deploy
+    dependsOn: ValidateSql
+    condition: succeeded()
+    jobs:
+      - deployment: DeploySynapseArtifacts
+        environment: 'retail-platform-production'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                # This step assumes the 'Synapse workspace deployment' Marketplace
+                # extension is installed in your Azure DevOps organization. Its actual
+                # task name/inputs should be taken from the extension's own current
+                # documentation at deploy time, not hard-coded here from memory.
+                - script: |
+                    echo "Deploy exported Synapse workspace-publish branch content here,"
+                    echo "using the 'Synapse workspace deployment' extension task once installed."
+                  displayName: 'Deploy Synapse workspace artifacts (wire in the Marketplace task)'
+
+                # The Dedicated Pool table DDL and security policies (sql/dedicated_pool/*.sql)
+                # are data-plane, same boundary as ADF's SQL grant script — run them as an
+                # explicit SQL deployment step, not something the workspace-artifact deploy covers.
+                - task: AzureCLI@2
+                  displayName: 'Run Dedicated Pool DDL scripts'
+                  inputs:
+                    azureSubscription: 'retail-platform-arm'
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      echo "Resume the pool first (scripts/resume_dedicated_pool.sh),"
+                      echo "then run sql/dedicated_pool/*.sql via sqlcmd or Invoke-Sqlcmd,"
+                      echo "then pause it again (scripts/pause_dedicated_pool.sh) — never leave"
+                      echo "this step without an explicit pause at the end, including in CI/CD."
